@@ -66,21 +66,29 @@ async fn download_video(video: &Video) -> Result<(), Box<dyn std::error::Error>>
 
     let segment_index = response.text().await?;
 
-    let segments = segment_index
+    let segments_urls = segment_index
         .lines()
         .filter(|line| !line.starts_with("#"));
 
+    let segments_count = segments_urls.clone().count();
+
+    println!("Preparing to download {} segments from YouTube.", segments_count);
+
     let mut file = tokio::fs::File::create("test_file.mp4").await?;
 
-
-    for segment in segments
+    for (segment_number, segment_url) in segments_urls.enumerate()
     {
-        let response = client.get(segment).send().await?;
+        let response = client.get(segment_url).send().await?;
         let mut byte_stream = response.bytes_stream();
 
         while let Some(item) = byte_stream.next().await {
             let chunk = item?;
             file.write_all(&chunk).await?;
+        }
+
+        if segment_number % 15 == 0
+        {
+            println!("Downloaded a total of {}%. Segments downloaded: {} out of {} segments in total.", (segment_number * 100) / segments_count, segment_number, segments_count);
         }
     }
 
