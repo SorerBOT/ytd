@@ -1,10 +1,10 @@
 use std::process::Command;
+use rand::RngExt;
 use reqwest::header::{HeaderMap, HeaderValue};
 use reqwest::Client;
 use serde::Deserialize;
 use tokio::io::AsyncWriteExt;
 use futures_util::StreamExt;
-use itertools::Itertools;
 
 #[derive(Deserialize, Debug)]
 struct HttpHeaders
@@ -96,14 +96,16 @@ async fn download_video(video: &Video) -> Result<(), Box<dyn std::error::Error>>
 
                 for segment_url in worker_urls
                 {
+                    let random_timeout = rand::rng().random_range(200..600);
+                    tokio::time::sleep(tokio::time::Duration::from_millis(random_timeout)).await;
                     let segment_response = worker_client.get(segment_url).send().await.unwrap();
                     let mut byte_stream = segment_response.bytes_stream();
 
-                    while let Some(item) = byte_stream.next().await {
+                    while let Some(item) = byte_stream.next().await
+                    {
                         let segment_data = item.unwrap();
                         chunk_file.write_all(&segment_data).await.unwrap();
                     }
-                    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
                 }
             });
 
