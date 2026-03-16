@@ -180,6 +180,8 @@ async fn download_hls(client: Client, url: &str, file_path: &str) -> Result<(), 
         tokio::io::copy(&mut temp_file, &mut file).await?;
         tokio::fs::remove_file(&file_name).await?;
     }
+
+    Ok(())
 }
 
 async fn download_raw(client: Client, url: &str, file_path: &str) -> Result<(), Box<dyn std::error::Error>>
