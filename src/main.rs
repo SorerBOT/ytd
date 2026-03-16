@@ -239,7 +239,9 @@ async fn download_video(video: &Video, destination: &str) -> Result<(), Box<dyn 
     {
         destination_copy.pop();
     }
-    let file_name = format!("{}.{}", video.fulltitle, video.ext).replace(" ", "_");
+    let file_name = format!("{}.{}", video.fulltitle, video.ext)
+        .replace(" ", "_")
+        .replace("/", "_");
     let file_path = format!("{}/{}", destination_copy, file_name);
 
     match tokio::fs::File::open(&file_path).await
