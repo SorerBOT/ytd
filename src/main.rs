@@ -82,19 +82,9 @@ fn get_playlist_from_url(url: &str) -> Result<Playlist, Box<dyn std::error::Erro
     Ok(playlist_serialized)
 }
 
-async fn download_video(video: &Video, destination: &str) -> Result<(), Box<dyn std::error::Error>>
+async fn download_hls(client: Client, url: &str, file_path: &str) -> Result<(), Box<dyn std::error::Error>>
 {
-    let mut client_headers = HeaderMap::new();
-    client_headers.append("User-Agent", HeaderValue::from_str(&video.http_headers.user_agent)?);
-    client_headers.append("Accept", HeaderValue::from_str(&video.http_headers.accept)?);
-    client_headers.append("Accept-Language", HeaderValue::from_str(&video.http_headers.accept_language)?);
-    client_headers.append("Sec-Fetch-Mode", HeaderValue::from_str(&video.http_headers.sec_fetch_mode)?);
-
-    let client = Client::builder()
-        .default_headers(client_headers)
-        .build()?;
-
-    let response = client.get(&video.url).send().await?
+    let response = client.get(url).send().await?
         .error_for_status()?;
 
     let segment_index = response.text().await?;
@@ -114,13 +104,6 @@ async fn download_video(video: &Video, destination: &str) -> Result<(), Box<dyn 
 
     println!("Preparing to download {} segments from YouTube.", segments_count);
 
-    let mut destination_copy = destination.to_string();
-    if destination_copy.ends_with('/')
-    {
-        destination_copy.pop();
-    }
-    let file_name = format!("{}.{}", video.fulltitle, video.ext).replace(" ", "_");
-    let file_path = format!("{}/{}", destination_copy, file_name);
     let mut file = tokio::fs::File::create(&file_path).await?;
 
     let chunks_count = 3; // only 3 because youtube blocks me :(
@@ -196,6 +179,54 @@ async fn download_video(video: &Video, destination: &str) -> Result<(), Box<dyn 
         let mut temp_file = tokio::fs::File::open(&file_name).await?;
         tokio::io::copy(&mut temp_file, &mut file).await?;
         tokio::fs::remove_file(&file_name).await?;
+    }
+}
+
+async fn download_raw(client: Client, url: &str, file_path: &str) -> Result<(), Box<dyn std::error::Error>>
+{
+    let response = client.get(url).send().await?
+        .error_for_status()?;
+
+    let mut byte_stream = response.bytes_stream();
+
+    let mut file = tokio::fs::File::create(file_path).await?;
+
+    while let Some(item) = byte_stream.next().await
+    {
+        let data = item.unwrap();
+        file.write_all(&data).await.unwrap();
+    }
+
+    Ok(())
+}
+
+async fn download_video(video: &Video, destination: &str) -> Result<(), Box<dyn std::error::Error>>
+{
+    let mut client_headers = HeaderMap::new();
+    client_headers.append("User-Agent", HeaderValue::from_str(&video.http_headers.user_agent)?);
+    client_headers.append("Accept", HeaderValue::from_str(&video.http_headers.accept)?);
+    client_headers.append("Accept-Language", HeaderValue::from_str(&video.http_headers.accept_language)?);
+    client_headers.append("Sec-Fetch-Mode", HeaderValue::from_str(&video.http_headers.sec_fetch_mode)?);
+
+    let client = Client::builder()
+        .default_headers(client_headers)
+        .build()?;
+
+    let mut destination_copy = destination.to_string();
+    if destination_copy.ends_with('/')
+    {
+        destination_copy.pop();
+    }
+    let file_name = format!("{}.{}", video.fulltitle, video.ext).replace(" ", "_");
+    let file_path = format!("{}/{}", destination_copy, file_name);
+
+    if file_path.contains("manifest") || file_path.contains("m3u8")
+    {
+        download_hls(client, &video.url, &file_path);
+    }
+    else
+    {
+        download_raw(client, &video.url, &file_path);
     }
 
     Ok(())
