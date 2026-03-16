@@ -8,6 +8,7 @@ use tokio::io::AsyncWriteExt;
 use futures_util::StreamExt;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::env;
 
 #[derive(Deserialize, Debug)]
 struct HttpHeaders
@@ -32,8 +33,6 @@ struct Video
     fulltitle: String,
     url: String,
     resolution: String,
-    width: Option<u32>,
-    height: Option<u32>,
     http_headers: HttpHeaders
 }
 
@@ -161,19 +160,58 @@ async fn download_video(video: &Video) -> Result<(), Box<dyn std::error::Error>>
     Ok(())
 }
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>>
+async fn video_handler(url: &String) -> Result<(), Box<dyn std::error::Error>>
 {
-    let url = "https://www.youtube.com/watch?v=REOZAvxdm4o";
-
     let video: Video = get_video_from_url(url)
         .expect("Failed to download video.");
 
     println!("Found video with title: {}", video.title);
     println!("Chosen format with resolution: {}", video.resolution);
 
-    let result = download_video(&video).await;
-    match result
+    download_video(&video).await?;
+
+    Ok(())
+}
+
+async fn playlist_handler(url: &String) -> Result<(), Box<dyn std::error::Error>>
+{
+
+
+
+    Ok(())
+}
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>>
+{
+    let args: Vec<String> = env::args().collect();
+
+    if args.len() < 3
+    {
+        eprintln!("Invalid usage. Run: ./{} <video|playlist> <url>", &args[0]);
+        return Ok(());
+    }
+
+    let command = &args[1];
+    let url = &args[2];
+
+    let task: Result<(), Box<dyn std::error::Error>> = match command.as_str()
+    {
+        "video" =>
+        {
+            video_handler(&url).await
+        },
+        "playlist" =>
+        {
+            playlist_handler(&url).await
+        },
+        _ =>
+        {
+            Err(format!("Invalid usage. Run: ./{} <video|playlist> <url>", &args[0]).into())
+        }
+    };
+
+    match task
     {
         Ok(()) =>
         {
