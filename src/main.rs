@@ -64,14 +64,27 @@ async fn download_video(video: &Video) -> Result<(), Box<dyn std::error::Error>>
     let response = client.get(&video.url).send().await?
         .error_for_status()?;
 
+    let segment_index = response.text().await?;
+
+    let segments = segment_index
+        .lines()
+        .filter(|line| !line.starts_with("#"));
+
     let mut file = tokio::fs::File::create("test_file.mp4").await?;
 
-    let mut byte_stream = response.bytes_stream();
 
-    while let Some(item) = byte_stream.next().await {
-        let chunk = item?;
-        file.write_all(&chunk).await?;
+    for segment in segments
+    {
+        let response = client.get(segment).send().await?;
+        let mut byte_stream = response.bytes_stream();
+
+        while let Some(item) = byte_stream.next().await {
+            let chunk = item?;
+            file.write_all(&chunk).await?;
+        }
     }
+
+
 
     Ok(())
 }
