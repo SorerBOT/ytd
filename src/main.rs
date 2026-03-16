@@ -36,6 +36,20 @@ struct Video
     http_headers: HttpHeaders
 }
 
+
+#[derive(Deserialize, Debug)]
+struct PlaylistVideo
+{
+    title: String,
+    url: String
+}
+
+#[derive(Deserialize, Debug)]
+struct Playlist
+{
+    entries: Vec<PlaylistVideo>
+}
+
 fn get_video_from_url(url: &str) -> Result<Video,Box<dyn std::error::Error>>
 {
     let output = Command::new("yt-dlp")
@@ -52,7 +66,22 @@ fn get_video_from_url(url: &str) -> Result<Video,Box<dyn std::error::Error>>
     Ok(content_serialized)
 }
 
-async fn download_video(video: &Video) -> Result<(), Box<dyn std::error::Error>>
+fn get_playlist_from_url(url: &str) -> Result<Playlist, Box<dyn std::error::Error>>
+{
+    let output = Command::new("yt-dlp")
+        .arg("--dump-single-json")
+        .arg("--flat-playlist")
+        .arg(url)
+        .output()?;
+
+    let json_content = String::from_utf8(output.stdout)?;
+
+    let playlist_serialized: Playlist = serde_json::from_str(&json_content)?;
+
+    Ok(playlist_serialized)
+}
+
+async fn download_video(video: &Video, destination: &str) -> Result<(), Box<dyn std::error::Error>>
 {
     let mut client_headers = HeaderMap::new();
     client_headers.append("User-Agent", HeaderValue::from_str(&video.http_headers.user_agent)?);
@@ -79,11 +108,17 @@ async fn download_video(video: &Video) -> Result<(), Box<dyn std::error::Error>>
 
     println!("Preparing to download {} segments from YouTube.", segments_count);
 
+    let mut destination_copy = destination.to_string();
+    if destination_copy.ends_with('/')
+    {
+        destination_copy.pop();
+    }
     let file_name = format!("{}.mp4", video.fulltitle).replace(" ", "_");
-    let mut file = tokio::fs::File::create(&file_name).await?;
+    let file_path = format!("{}/{}", destination_copy, file_name);
+    let mut file = tokio::fs::File::create(&file_path).await?;
 
     let chunks_count = 3; // only 3 because youtube blocks me :(
-    let chunk_size = segments_count / chunks_count;
+    let chunk_size = (segments_count + chunks_count - 1) / chunks_count;
 
     let mut handles = Vec::new();
 
@@ -160,23 +195,30 @@ async fn download_video(video: &Video) -> Result<(), Box<dyn std::error::Error>>
     Ok(())
 }
 
-async fn video_handler(url: &String) -> Result<(), Box<dyn std::error::Error>>
+async fn video_handler(url: &String, destination: &str) -> Result<(), Box<dyn std::error::Error>>
 {
     let video: Video = get_video_from_url(url)
         .expect("Failed to download video.");
 
     println!("Found video with title: {}", video.title);
     println!("Chosen format with resolution: {}", video.resolution);
+    println!("Downloading video into: {}", destination);
 
-    download_video(&video).await?;
+    download_video(&video, destination).await?;
 
     Ok(())
 }
 
-async fn playlist_handler(url: &String) -> Result<(), Box<dyn std::error::Error>>
+async fn playlist_handler(url: &String, destination: &str) -> Result<(), Box<dyn std::error::Error>>
 {
+    let playlist = get_playlist_from_url(url)?;
 
-
+    println!("Found playlist with: {} entries.", playlist.entries.len());
+    for (playlist_video_idx, playlist_video) in playlist.entries.iter().enumerate()
+    {
+        println!("Downloading entry {} out of {} entries.", playlist_video_idx, playlist.entries.len());
+        video_handler(&playlist_video.url, destination).await?;
+    }
 
     Ok(())
 }
@@ -186,24 +228,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>>
 {
     let args: Vec<String> = env::args().collect();
 
-    if args.len() < 3
+    if args.len() < 4
     {
-        eprintln!("Invalid usage. Run: ./{} <video|playlist> <url>", &args[0]);
+        eprintln!("Invalid usage. Run: ./{} <video|playlist> <destination> <url>", &args[0]);
         return Ok(());
     }
 
     let command = &args[1];
-    let url = &args[2];
+    let destination = &args[2];
+    let url = &args[3];
 
     let task: Result<(), Box<dyn std::error::Error>> = match command.as_str()
     {
         "video" =>
         {
-            video_handler(&url).await
+            video_handler(&url, destination).await
         },
         "playlist" =>
         {
-            playlist_handler(&url).await
+            playlist_handler(&url, destination).await
         },
         _ =>
         {
