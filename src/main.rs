@@ -252,13 +252,19 @@ async fn download_video(video: &Video, destination: &str) -> Result<(), Box<dyn 
         Err(_) => {},
     }
 
-    if file_path.contains("manifest") || file_path.contains("m3u8")
+    let res = if file_path.contains("manifest") || file_path.contains("m3u8")
     {
-        download_hls(client, &video.url, &file_path).await?;
+        download_hls(client, &video.url, &file_path).await
     }
     else
     {
-        download_raw(client, &video.url, &file_path).await?;
+        download_raw(client, &video.url, &file_path).await
+    };
+
+    if let Err(err) = res
+    {
+        tokio::fs::remove_file(file_path).await?;
+        return Err(err);
     }
 
     Ok(())
