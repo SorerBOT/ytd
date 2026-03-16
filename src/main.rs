@@ -1,10 +1,13 @@
 use std::process::Command;
+use std::time::Duration;
 use rand::RngExt;
 use reqwest::header::{HeaderMap, HeaderValue};
 use reqwest::Client;
 use serde::Deserialize;
 use tokio::io::AsyncWriteExt;
 use futures_util::StreamExt;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 #[derive(Deserialize, Debug)]
 struct HttpHeaders
@@ -84,20 +87,28 @@ async fn download_video(video: &Video) -> Result<(), Box<dyn std::error::Error>>
 
     let mut handles = Vec::new();
 
+    let downloaded_segments = Arc::new(AtomicUsize::new(0));
+
     for (chunk_number, chunk) in segments_urls.chunks(chunk_size).enumerate()
     {
         let worker_client = client.clone();
         let worker_urls = chunk.to_vec();
+        let worker_counter = downloaded_segments.clone();
 
         let handle = tokio::spawn(async move
             {
                 let file_name = format!("ytd_{}.tmp", chunk_number);
                 let mut chunk_file = tokio::fs::File::create(&file_name).await.unwrap();
 
-                for segment_url in worker_urls
+                for (segment_idx, segment_url) in worker_urls.iter().enumerate()
                 {
-                    let random_timeout = rand::rng().random_range(200..600);
-                    tokio::time::sleep(tokio::time::Duration::from_millis(random_timeout)).await;
+                    if segment_idx % 10 == 0
+                    {
+                        let random_timeout = rand::rng().random_range(200..500);
+                        tokio::time::sleep(tokio::time::Duration::from_millis(random_timeout)).await;
+                        worker_counter.fetch_add(10, Ordering::Relaxed);
+                    }
+
                     let segment_response = worker_client.get(segment_url).send().await.unwrap();
                     let mut byte_stream = segment_response.bytes_stream();
 
@@ -107,6 +118,8 @@ async fn download_video(video: &Video) -> Result<(), Box<dyn std::error::Error>>
                         chunk_file.write_all(&segment_data).await.unwrap();
                     }
                 }
+
+                worker_counter.fetch_add(worker_urls.len() % 10, Ordering::Relaxed);
             });
 
         handles.push(handle);
@@ -114,10 +127,27 @@ async fn download_video(video: &Video) -> Result<(), Box<dyn std::error::Error>>
         println!("Finished setting up worker number {}", chunk_number);
     }
 
+    let progress_worker_count = downloaded_segments.clone();
+    let progress_worker_handle = tokio::spawn(async move
+        {
+            loop
+            {
+                let previous_downloaded_segments_count = progress_worker_count.load(Ordering::Relaxed);
+                tokio::time::sleep(Duration::from_millis(1000)).await;
+                let current_downloaded_segments_count = progress_worker_count.load(Ordering::Relaxed);
+                let progress_percentage = (current_downloaded_segments_count * 100) / segments_count;
+                let download_speed = (current_downloaded_segments_count - previous_downloaded_segments_count) * 2;
+
+                println!("Downloaded {}% of the video. Currently downloading {} MiB / S.", progress_percentage, download_speed);
+            }
+        });
+
     for handle in handles
     {
         handle.await.unwrap();
     }
+
+    progress_worker_handle.abort();
 
     for temp_file_idx in 0..chunks_count
     {
