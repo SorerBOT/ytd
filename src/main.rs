@@ -33,6 +33,7 @@ struct Video
     fulltitle: String,
     url: String,
     resolution: String,
+    ext: String,
     http_headers: HttpHeaders
 }
 
@@ -55,7 +56,7 @@ fn get_video_from_url(url: &str) -> Result<Video,Box<dyn std::error::Error>>
     let output = Command::new("yt-dlp")
         .arg("--dump-json")
         .arg("-f")
-        .arg("best[ext=mp4]")
+        .arg("best[ext=mp4]/best")
         .arg(url)
         .output()?;
 
@@ -106,6 +107,11 @@ async fn download_video(video: &Video, destination: &str) -> Result<(), Box<dyn 
 
     let segments_count = segments_urls.len();
 
+    if segments_count > 3000
+    {
+        return Err(format!("Found: {} segments. That's way too many.", segments_count).into());
+    }
+
     println!("Preparing to download {} segments from YouTube.", segments_count);
 
     let mut destination_copy = destination.to_string();
@@ -113,7 +119,7 @@ async fn download_video(video: &Video, destination: &str) -> Result<(), Box<dyn 
     {
         destination_copy.pop();
     }
-    let file_name = format!("{}.mp4", video.fulltitle).replace(" ", "_");
+    let file_name = format!("{}.{}", video.fulltitle, video.ext).replace(" ", "_");
     let file_path = format!("{}/{}", destination_copy, file_name);
     let mut file = tokio::fs::File::create(&file_path).await?;
 
@@ -217,7 +223,15 @@ async fn playlist_handler(url: &String, destination: &str) -> Result<(), Box<dyn
     for (playlist_video_idx, playlist_video) in playlist.entries.iter().enumerate()
     {
         println!("Downloading entry {} out of {} entries.", playlist_video_idx, playlist.entries.len());
-        video_handler(&playlist_video.url, destination).await?;
+        match video_handler(&playlist_video.url, destination).await
+        {
+            Ok(_) => {},
+            Err(error) =>
+            {
+                eprintln!("Failed to download: {} with error: {}", playlist_video.title, error);
+            }
+
+        }
     }
 
     Ok(())
