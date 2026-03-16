@@ -189,14 +189,34 @@ async fn download_raw(client: Client, url: &str, file_path: &str) -> Result<(), 
     let response = client.get(url).send().await?
         .error_for_status()?;
 
+    let stream_length = response.content_length();
+    let mut bytes_read_old: u64 = 0;
+    let mut bytes_read_new: u64 = 0;
     let mut byte_stream = response.bytes_stream();
 
     let mut file = tokio::fs::File::create(file_path).await?;
 
+    let mut current_time = tokio::time::Instant::now();
     while let Some(item) = byte_stream.next().await
     {
-        let data = item.unwrap();
-        file.write_all(&data).await.unwrap();
+        let data = item?;
+        bytes_read_new += data.len() as u64;
+        file.write_all(&data).await?;
+        if current_time.elapsed().as_secs() >= 1
+        {
+            let delta = bytes_read_new - bytes_read_old;
+            bytes_read_old = bytes_read_new;
+            let download_speed = delta / (1024 * 1024);
+
+            if stream_length.is_some()
+            {
+                let progress_percentage = (bytes_read_new * 100) / stream_length.unwrap();
+                print!("Downloaded {}% of the video. ", progress_percentage);
+            }
+            println!(" Currently downloading {} MiB / S.", download_speed);
+
+            current_time = tokio::time::Instant::now();
+        }
     }
 
     Ok(())
