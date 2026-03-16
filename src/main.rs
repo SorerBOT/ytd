@@ -51,7 +51,7 @@ struct Playlist
     entries: Vec<PlaylistVideo>
 }
 
-fn get_video_from_url(url: &str) -> Result<Video,Box<dyn std::error::Error>>
+fn get_video_from_url(url: &str) -> Result<Video,Box<dyn std::error::Error + Send + Sync>>
 {
     let output = Command::new("yt-dlp")
         .arg("--dump-json")
@@ -67,7 +67,7 @@ fn get_video_from_url(url: &str) -> Result<Video,Box<dyn std::error::Error>>
     Ok(content_serialized)
 }
 
-fn get_playlist_from_url(url: &str) -> Result<Playlist, Box<dyn std::error::Error>>
+fn get_playlist_from_url(url: &str) -> Result<Playlist, Box<dyn std::error::Error + Send + Sync>>
 {
     let output = Command::new("yt-dlp")
         .arg("--dump-single-json")
@@ -82,7 +82,7 @@ fn get_playlist_from_url(url: &str) -> Result<Playlist, Box<dyn std::error::Erro
     Ok(playlist_serialized)
 }
 
-async fn download_hls(client: Client, url: &str, file_path: &str) -> Result<(), Box<dyn std::error::Error>>
+async fn download_hls(client: Client, url: &str, file_path: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>>
 {
     let response = client.get(url).send().await?
         .error_for_status()?;
@@ -184,7 +184,7 @@ async fn download_hls(client: Client, url: &str, file_path: &str) -> Result<(), 
     Ok(())
 }
 
-async fn download_raw(client: Client, url: &str, file_path: &str) -> Result<(), Box<dyn std::error::Error>>
+async fn download_raw(client: Client, url: &str, file_path: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>>
 {
     let response = client.get(url).send().await?
         .error_for_status()?;
@@ -222,7 +222,7 @@ async fn download_raw(client: Client, url: &str, file_path: &str) -> Result<(), 
     Ok(())
 }
 
-async fn download_video(video: &Video, destination: &str) -> Result<(), Box<dyn std::error::Error>>
+async fn download_video(video: &Video, destination: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>>
 {
     let mut client_headers = HeaderMap::new();
     client_headers.append("User-Agent", HeaderValue::from_str(&video.http_headers.user_agent)?);
@@ -272,7 +272,7 @@ async fn download_video(video: &Video, destination: &str) -> Result<(), Box<dyn 
     Ok(())
 }
 
-async fn video_handler(url: &String, destination: &str) -> Result<(), Box<dyn std::error::Error>>
+async fn video_handler(url: &String, destination: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>>
 {
     let video: Video = get_video_from_url(url)
         .expect("Failed to download video.");
@@ -286,25 +286,32 @@ async fn video_handler(url: &String, destination: &str) -> Result<(), Box<dyn st
     Ok(())
 }
 
-async fn playlist_handler(url: &String, destination: &str) -> Result<(), Box<dyn std::error::Error>>
+async fn playlist_handler(url: &String, destination: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>>
 {
     let playlist = get_playlist_from_url(url)?;
+    let playlist_len = playlist.entries.len();
 
+    let mut handles = Vec::new();
     println!("Found playlist with: {} entries.", playlist.entries.len());
-    for (playlist_video_idx, playlist_video) in playlist.entries.iter().enumerate()
+    for (playlist_video_idx, playlist_video) in playlist.entries.into_iter().enumerate()
     {
-        println!("Downloading entry {} out of {} entries.", playlist_video_idx, playlist.entries.len());
-        if let Err(err) = video_handler(&playlist_video.url, destination).await
-        {
-            eprintln!("Failed to download: {} with error: {}", playlist_video.title, err);
-        }
+        let worker_destination = destination.to_string();
+        let handle = tokio::spawn(async move
+            {
+                println!("Downloading entry {} out of {} entries.", playlist_video_idx, playlist_len);
+                if let Err(err) = video_handler(&playlist_video.url, &worker_destination).await
+                {
+                    eprintln!("Failed to download: {} with error: {}", playlist_video.title, err);
+                }
+            });
+        handles.push(handle);
     }
 
     Ok(())
 }
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>>
+async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>>
 {
     let args: Vec<String> = env::args().collect();
 
@@ -318,15 +325,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>>
     let destination = &args[2];
     let url = &args[3];
 
-    let task: Result<(), Box<dyn std::error::Error>> = match command.as_str()
+    let task: Result<(), Box<dyn std::error::Error + Send + Sync>> = match command.as_str()
     {
         "video" =>
         {
-            video_handler(&url, destination).await
+            video_handler(url, destination).await
         },
         "playlist" =>
         {
-            playlist_handler(&url, destination).await
+            playlist_handler(url, destination).await
         },
         _ =>
         {
