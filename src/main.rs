@@ -294,14 +294,9 @@ async fn playlist_handler(url: &String, destination: &str) -> Result<(), Box<dyn
     for (playlist_video_idx, playlist_video) in playlist.entries.iter().enumerate()
     {
         println!("Downloading entry {} out of {} entries.", playlist_video_idx, playlist.entries.len());
-        match video_handler(&playlist_video.url, destination).await
+        if let Err(err) = video_handler(&playlist_video.url, destination).await
         {
-            Ok(_) => {},
-            Err(error) =>
-            {
-                eprintln!("Failed to download: {} with error: {}", playlist_video.title, error);
-            }
-
+            eprintln!("Failed to download: {} with error: {}", playlist_video.title, err);
         }
     }
 
