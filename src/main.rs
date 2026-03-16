@@ -80,7 +80,8 @@ async fn download_video(video: &Video) -> Result<(), Box<dyn std::error::Error>>
 
     println!("Preparing to download {} segments from YouTube.", segments_count);
 
-    let mut file = tokio::fs::File::create("test_file.mp4").await?;
+    let file_name = format!("{}.mp4", video.fulltitle);
+    let mut file = tokio::fs::File::create(&file_name).await?;
 
     let chunks_count = 3; // only 3 because youtube blocks me :(
     let chunk_size = segments_count / chunks_count;
@@ -156,7 +157,6 @@ async fn download_video(video: &Video) -> Result<(), Box<dyn std::error::Error>>
         tokio::io::copy(&mut temp_file, &mut file).await?;
         tokio::fs::remove_file(&file_name).await?;
     }
-
 
     Ok(())
 }
