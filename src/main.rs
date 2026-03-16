@@ -4,6 +4,7 @@ use reqwest::Client;
 use serde::Deserialize;
 use tokio::io::AsyncWriteExt;
 use futures_util::StreamExt;
+use itertools::Itertools;
 
 #[derive(Deserialize, Debug)]
 struct HttpHeaders
@@ -66,32 +67,63 @@ async fn download_video(video: &Video) -> Result<(), Box<dyn std::error::Error>>
 
     let segment_index = response.text().await?;
 
-    let segments_urls = segment_index
+    let segments_urls: Vec<String> = segment_index
         .lines()
-        .filter(|line| !line.starts_with("#"));
+        .filter(|line| !line.starts_with("#"))
+        .map(|line| line.to_string())
+        .collect();
 
-    let segments_count = segments_urls.clone().count();
+    let segments_count = segments_urls.len();
 
     println!("Preparing to download {} segments from YouTube.", segments_count);
 
     let mut file = tokio::fs::File::create("test_file.mp4").await?;
 
-    for (segment_number, segment_url) in segments_urls.enumerate()
+    let chunks_count = 3; // only 3 because youtube blocks me :(
+    let chunk_size = segments_count / chunks_count;
+
+    let mut handles = Vec::new();
+
+    for (chunk_number, chunk) in segments_urls.chunks(chunk_size).enumerate()
     {
-        let response = client.get(segment_url).send().await?;
-        let mut byte_stream = response.bytes_stream();
+        let worker_client = client.clone();
+        let worker_urls = chunk.to_vec();
 
-        while let Some(item) = byte_stream.next().await {
-            let chunk = item?;
-            file.write_all(&chunk).await?;
-        }
+        let handle = tokio::spawn(async move
+            {
+                let file_name = format!("ytd_{}.tmp", chunk_number);
+                let mut chunk_file = tokio::fs::File::create(&file_name).await.unwrap();
 
-        if segment_number % 15 == 0
-        {
-            println!("Downloaded a total of {}%. Segments downloaded: {} out of {} segments in total.", (segment_number * 100) / segments_count, segment_number, segments_count);
-        }
+                for segment_url in worker_urls
+                {
+                    let segment_response = worker_client.get(segment_url).send().await.unwrap();
+                    let mut byte_stream = segment_response.bytes_stream();
+
+                    while let Some(item) = byte_stream.next().await {
+                        let segment_data = item.unwrap();
+                        chunk_file.write_all(&segment_data).await.unwrap();
+                    }
+                    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+                }
+            });
+
+        handles.push(handle);
+
+        println!("Finished setting up worker number {}", chunk_number);
     }
 
+    for handle in handles
+    {
+        handle.await.unwrap();
+    }
+
+    for temp_file_idx in 0..chunks_count
+    {
+        let file_name = format!("ytd_{}.tmp", temp_file_idx);
+        let mut temp_file = tokio::fs::File::open(&file_name).await?;
+        tokio::io::copy(&mut temp_file, &mut file).await?;
+        tokio::fs::remove_file(&file_name).await?;
+    }
 
 
     Ok(())
@@ -100,7 +132,7 @@ async fn download_video(video: &Video) -> Result<(), Box<dyn std::error::Error>>
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>>
 {
-    let url = "https://www.youtube.com/watch?v=NV401gLmiAk";
+    let url = "https://www.youtube.com/watch?v=REOZAvxdm4o";
 
     let video: Video = get_video_from_url(url)
         .expect("Failed to download video.");
