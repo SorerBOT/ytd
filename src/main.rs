@@ -257,7 +257,6 @@ async fn download_video(video: &Video, destination: &str, semaphore: Option<Arc<
 
     let is_manifest = file_path.contains("manifest") || file_path.contains("m3u8");
     let _permit;
-
     if semaphore.is_some()
     {
         let threads_needed = if is_manifest
@@ -291,8 +290,16 @@ async fn download_video(video: &Video, destination: &str, semaphore: Option<Arc<
 
 async fn video_handler(url: &String, destination: &str, semaphore: Option<Arc<Semaphore>>) -> Result<(), Box<dyn std::error::Error + Send + Sync>>
 {
+    let _permit = match &semaphore
+    {
+        Some(sem) => Some(sem.acquire().await.unwrap()),
+        None => None
+    };
+
     let video: Video = get_video_from_url(url)
         .expect("Failed to download video.");
+
+    drop(_permit);
 
     println!("Found video with title: {}", video.title);
     println!("Chosen format with resolution: {}", video.resolution);
@@ -318,10 +325,10 @@ async fn playlist_handler(url: &String, destination: &str) -> Result<(), Box<dyn
         let worker_semaphore = Arc::clone(&semaphore);
         let handle = tokio::spawn(async move
             {
-                println!("Downloading entry {} out of {} entries.", playlist_video_idx, playlist_len);
+                //println!("Setting up entry {} out of {} entries.", playlist_video_idx, playlist_len);
                 if let Err(err) = video_handler(&playlist_video.url, &worker_destination, Some(worker_semaphore)).await
                 {
-                    eprintln!("Failed to download: {} with error: {}", playlist_video.title, err);
+                    eprintln!("Failed to download: {} with error: {}. It was entry {} out of {} entries.", playlist_video.title, err, playlist_video_idx, playlist_len);
                 }
             });
         handles.push(handle);
