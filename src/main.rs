@@ -6,6 +6,7 @@ use reqwest::Client;
 use serde::Deserialize;
 use tokio::io::AsyncWriteExt;
 use futures_util::StreamExt;
+use tokio::sync::Semaphore;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::env;
@@ -222,7 +223,7 @@ async fn download_raw(client: Client, url: &str, file_path: &str) -> Result<(), 
     Ok(())
 }
 
-async fn download_video(video: &Video, destination: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>>
+async fn download_video(video: &Video, destination: &str, semaphore: Option<Arc<Semaphore>>) -> Result<(), Box<dyn std::error::Error + Send + Sync>>
 {
     let mut client_headers = HeaderMap::new();
     client_headers.append("User-Agent", HeaderValue::from_str(&video.http_headers.user_agent)?);
@@ -254,6 +255,22 @@ async fn download_video(video: &Video, destination: &str) -> Result<(), Box<dyn 
         Err(_) => {},
     }
 
+    let is_manifest = file_path.contains("manifest") || file_path.contains("m3u8");
+    let _permit;
+
+    if semaphore.is_some()
+    {
+        let threads_needed = if is_manifest
+        {
+            3
+        }
+        else
+        {
+            1
+        };
+
+        _permit = semaphore.unwrap().acquire_many_owned(threads_needed).await.unwrap();
+    }
     let res = if file_path.contains("manifest") || file_path.contains("m3u8")
     {
         download_hls(client, &video.url, &file_path).await
@@ -272,7 +289,7 @@ async fn download_video(video: &Video, destination: &str) -> Result<(), Box<dyn 
     Ok(())
 }
 
-async fn video_handler(url: &String, destination: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>>
+async fn video_handler(url: &String, destination: &str, semaphore: Option<Arc<Semaphore>>) -> Result<(), Box<dyn std::error::Error + Send + Sync>>
 {
     let video: Video = get_video_from_url(url)
         .expect("Failed to download video.");
@@ -281,7 +298,7 @@ async fn video_handler(url: &String, destination: &str) -> Result<(), Box<dyn st
     println!("Chosen format with resolution: {}", video.resolution);
     println!("Downloading video into: {}", destination);
 
-    download_video(&video, destination).await?;
+    download_video(&video, destination, semaphore).await?;
 
     Ok(())
 }
@@ -291,20 +308,28 @@ async fn playlist_handler(url: &String, destination: &str) -> Result<(), Box<dyn
     let playlist = get_playlist_from_url(url)?;
     let playlist_len = playlist.entries.len();
 
-    let mut handles = Vec::new();
     println!("Found playlist with: {} entries.", playlist.entries.len());
+
+    let mut handles = Vec::new();
+    let semaphore = Arc::new(Semaphore::new(3));
     for (playlist_video_idx, playlist_video) in playlist.entries.into_iter().enumerate()
     {
         let worker_destination = destination.to_string();
+        let worker_semaphore = Arc::clone(&semaphore);
         let handle = tokio::spawn(async move
             {
                 println!("Downloading entry {} out of {} entries.", playlist_video_idx, playlist_len);
-                if let Err(err) = video_handler(&playlist_video.url, &worker_destination).await
+                if let Err(err) = video_handler(&playlist_video.url, &worker_destination, Some(worker_semaphore)).await
                 {
                     eprintln!("Failed to download: {} with error: {}", playlist_video.title, err);
                 }
             });
         handles.push(handle);
+    }
+
+    for handle in handles
+    {
+        handle.await.unwrap();
     }
 
     Ok(())
@@ -329,7 +354,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>>
     {
         "video" =>
         {
-            video_handler(url, destination).await
+            video_handler(url, destination, None).await
         },
         "playlist" =>
         {
