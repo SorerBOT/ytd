@@ -265,7 +265,7 @@ async fn download_video(video: &Video, destination: &str, semaphore: Option<Arc<
 
         _permit = semaphore.unwrap().acquire_many_owned(threads_needed).await.unwrap();
     }
-    let res = if file_path.contains("manifest") || file_path.contains("m3u8")
+    let res = if is_manifest
     {
         download_hls(client, &video.url, &file_path).await
     }
