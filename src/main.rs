@@ -466,9 +466,7 @@ async fn video_handler_debug(url: &String, destination: &str, semaphore: Option<
 
     drop(_permit);
 
-    println!("Found video with title: {}", video.title);
-    println!("Chosen format with resolution: {}", video.resolution);
-    println!("Downloading video into: {}", destination);
+    println!("Downloading: {} into {} in resolution: {}", video.title, destination, video.resolution);
 
     download_video_debug(&video, destination, semaphore).await?;
 
@@ -487,16 +485,14 @@ async fn video_handler(url: &String, destination: &str, semaphore: Option<Arc<Se
 
     drop(_permit);
 
-    println!("Found video with title: {}", video.title);
-    println!("Chosen format with resolution: {}", video.resolution);
-    println!("Downloading video into: {}", destination);
+    println!("Downloading: {} into {} in resolution: {}", video.title, destination, video.resolution);
 
     download_video(&video, destination, semaphore).await?;
 
     Ok(())
 }
 
-async fn playlist_handler(url: &String, destination: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>>
+async fn playlist_handler_debug(url: &String, destination: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>>
 {
     let playlist = get_playlist_from_url_debug(url)?;
     let playlist_len = playlist.entries.len();
@@ -533,6 +529,43 @@ async fn playlist_handler(url: &String, destination: &str) -> Result<(), Box<dyn
     Ok(())
 }
 
+async fn playlist_handler(url: &String, destination: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>>
+{
+    let playlist = get_playlist_from_url(url)?;
+    let playlist_len = playlist.entries.len();
+
+    println!("Found playlist with: {} entries.", playlist.entries.len());
+
+    let mut handles = Vec::new();
+    let semaphore = Arc::new(Semaphore::new(3));
+    for (playlist_video_idx, playlist_video) in playlist.entries.into_iter().enumerate()
+    {
+        let worker_destination = destination.to_string();
+        let worker_semaphore = Arc::clone(&semaphore);
+        if playlist_video_idx > 0
+        {
+            let random_timeout = rand::rng().random_range(200..500);
+            tokio::time::sleep(tokio::time::Duration::from_millis(random_timeout)).await;
+        }
+        let handle = tokio::spawn(async move
+            {
+                //println!("Setting up entry {} out of {} entries.", playlist_video_idx, playlist_len);
+                if let Err(err) = video_handler(&playlist_video.url, &worker_destination, Some(worker_semaphore)).await
+                {
+                    eprintln!("Failed to download: {} with error: {}. It was entry {} out of {} entries.", playlist_video.title, err, playlist_video_idx, playlist_len);
+                }
+            });
+        handles.push(handle);
+    }
+
+    for handle in handles
+    {
+        handle.await.unwrap();
+    }
+
+    Ok(())
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>>
 {
@@ -552,7 +585,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>>
     {
         "video" =>
         {
-            video_handler_debug(url, destination, None).await
+            video_handler(url, destination, None).await
         },
         "playlist" =>
         {
