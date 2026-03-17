@@ -98,11 +98,6 @@ async fn download_hls(client: Client, url: &str, file_path: &str) -> Result<(), 
 
     let segments_count = segments_urls.len();
 
-    if segments_count > 3000
-    {
-        return Err(format!("Found: {} segments. That's way too many.", segments_count).into());
-    }
-
     println!("Preparing to download {} segments from YouTube.", segments_count);
 
     let mut file = tokio::fs::File::create(&file_path).await?;
