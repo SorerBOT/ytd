@@ -12,11 +12,15 @@ Under the hood it uses yt-dlp to find the video / playlist metadata, then handle
 * yt-dlp - can be downloaded with most package managers.
 
 ## How to use?
+Build using:
+```bash
+cargo build --release
+```
 To download a video:
 ```bash
-./ytd video <destination_folder> <url>
+./target/release/ytd video <destination_folder> <url>
 ```
 To download a playlist:
 ```bash
-./ytd playlist <destination_folder> <url>
+./target/release/ytd playlist <destination_folder> <url>
 ```
