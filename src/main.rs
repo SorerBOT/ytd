@@ -52,6 +52,27 @@ struct Playlist
     entries: Vec<PlaylistVideo>
 }
 
+fn get_video_from_url_debug(url: &str) -> Result<Video,Box<dyn std::error::Error + Send + Sync>>
+{
+    let video = Video
+    {
+        title: "fake title".to_string(),
+        fulltitle: "fake full title".to_string(),
+        url: "fake url".to_string(),
+        resolution: "fake resolution".to_string(),
+        ext: "fake ext".to_string(),
+        http_headers: HttpHeaders
+        {
+            user_agent: "user".to_string(),
+            accept: "accept".to_string(),
+            accept_language: "accept language".to_string(),
+            sec_fetch_mode: "sec fetch mode".to_string()
+        }
+    };
+
+    return Ok(video);
+}
+
 fn get_video_from_url(url: &str) -> Result<Video,Box<dyn std::error::Error + Send + Sync>>
 {
     let output = Command::new("yt-dlp")
@@ -66,6 +87,90 @@ fn get_video_from_url(url: &str) -> Result<Video,Box<dyn std::error::Error + Sen
     let content_serialized: Video = serde_json::from_str(&json_content)?;
 
     Ok(content_serialized)
+}
+
+fn get_playlist_from_url_debug(url: &str) -> Result<Playlist, Box<dyn std::error::Error + Send + Sync>>
+{
+    let playlist = Playlist
+    {
+        entries: vec!
+            [
+                PlaylistVideo
+                {
+                    title: "Video 1".to_string(),
+                    url: "fake_url".to_string()
+                },
+                PlaylistVideo
+                {
+                    title: "Video 2".to_string(),
+                    url: "fake_url".to_string()
+                },
+                PlaylistVideo
+                {
+                    title: "Video 3".to_string(),
+                    url: "fake_url".to_string()
+                },
+                PlaylistVideo
+                {
+                    title: "Video 4".to_string(),
+                    url: "fake_url".to_string()
+                },
+                PlaylistVideo
+                {
+                    title: "Video 5".to_string(),
+                    url: "fake_url".to_string()
+                },
+                PlaylistVideo
+                {
+                    title: "Video 6".to_string(),
+                    url: "fake_url".to_string()
+                },
+                PlaylistVideo
+                {
+                    title: "Video 7".to_string(),
+                    url: "fake_url".to_string()
+                },
+                PlaylistVideo
+                {
+                    title: "Video 8".to_string(),
+                    url: "fake_url".to_string()
+                },
+                PlaylistVideo
+                {
+                    title: "Video 9".to_string(),
+                    url: "fake_url".to_string()
+                },
+                PlaylistVideo
+                {
+                    title: "Video 10".to_string(),
+                    url: "fake_url".to_string()
+                },
+                PlaylistVideo
+                {
+                    title: "Video 11".to_string(),
+                    url: "fake_url".to_string()
+                },
+                PlaylistVideo
+                {
+                    title: "Video 12".to_string(),
+                    url: "fake_url".to_string()
+                },
+                PlaylistVideo
+                {
+                    title: "Video 13".to_string(),
+                    url: "fake_url".to_string()
+                },
+            ]
+    };
+
+    return Ok(playlist);
+}
+
+async fn download_hls_debug(client: Client, url: &str, file_path: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>>
+{
+    println!("Downloading HLS RN");
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    return Ok(());
 }
 
 fn get_playlist_from_url(url: &str) -> Result<Playlist, Box<dyn std::error::Error + Send + Sync>>
@@ -180,6 +285,14 @@ async fn download_hls(client: Client, url: &str, file_path: &str) -> Result<(), 
     Ok(())
 }
 
+async fn download_raw_debug(client: Client, url: &str, file_path: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>>
+{
+    println!("Downloading RAW RN");
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    return Ok(());
+
+}
+
 async fn download_raw(client: Client, url: &str, file_path: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>>
 {
     let response = client.get(url).send().await?
@@ -213,6 +326,67 @@ async fn download_raw(client: Client, url: &str, file_path: &str) -> Result<(), 
 
             current_time = tokio::time::Instant::now();
         }
+    }
+
+    Ok(())
+}
+
+async fn download_video_debug(video: &Video, destination: &str, semaphore: Option<Arc<Semaphore>>) -> Result<(), Box<dyn std::error::Error + Send + Sync>>
+{
+    let mut client_headers = HeaderMap::new();
+    client_headers.append("User-Agent", HeaderValue::from_str(&video.http_headers.user_agent)?);
+    client_headers.append("Accept", HeaderValue::from_str(&video.http_headers.accept)?);
+    client_headers.append("Accept-Language", HeaderValue::from_str(&video.http_headers.accept_language)?);
+    client_headers.append("Sec-Fetch-Mode", HeaderValue::from_str(&video.http_headers.sec_fetch_mode)?);
+
+    let client = Client::builder()
+        .default_headers(client_headers)
+        .build()?;
+
+    let mut destination_copy = destination.to_string();
+    if destination_copy.ends_with('/')
+    {
+        destination_copy.pop();
+    }
+    let file_name = format!("{}.{}", video.fulltitle, video.ext)
+        .replace(" ", "_")
+        .replace("/", "_");
+    let file_path = format!("{}/{}", destination_copy, file_name);
+
+    if let Ok(_) = tokio::fs::File::open(&file_path).await
+    {
+        println!("File exists. Skipping.");
+        return Ok(());
+    }
+
+    let is_manifest = file_path.contains("manifest") || file_path.contains("m3u8");
+    let _permit;
+    if semaphore.is_some()
+    {
+        let threads_needed = if is_manifest
+        {
+            3
+        }
+        else
+        {
+            1
+        };
+
+        _permit = semaphore.unwrap().acquire_many_owned(threads_needed).await.unwrap();
+    }
+    let res = if is_manifest
+    {
+        download_hls_debug(client, &video.url, &file_path).await
+    }
+    else
+    {
+        download_raw_debug(client, &video.url, &file_path).await
+    };
+
+    if let Err(err) = res
+    {
+        tokio::fs::remove_file(file_path).await?;
+        return Err(err);
     }
 
     Ok(())
@@ -279,6 +453,27 @@ async fn download_video(video: &Video, destination: &str, semaphore: Option<Arc<
     Ok(())
 }
 
+async fn video_handler_debug(url: &String, destination: &str, semaphore: Option<Arc<Semaphore>>) -> Result<(), Box<dyn std::error::Error + Send + Sync>>
+{
+    let _permit = match &semaphore
+    {
+        Some(sem) => Some(sem.acquire().await.unwrap()),
+        None => None
+    };
+
+    let video: Video = get_video_from_url_debug(url)
+        .expect("Failed to download video.");
+
+    drop(_permit);
+
+    println!("Found video with title: {}", video.title);
+    println!("Chosen format with resolution: {}", video.resolution);
+    println!("Downloading video into: {}", destination);
+
+    download_video_debug(&video, destination, semaphore).await?;
+
+    Ok(())
+}
 async fn video_handler(url: &String, destination: &str, semaphore: Option<Arc<Semaphore>>) -> Result<(), Box<dyn std::error::Error + Send + Sync>>
 {
     let _permit = match &semaphore
@@ -303,7 +498,7 @@ async fn video_handler(url: &String, destination: &str, semaphore: Option<Arc<Se
 
 async fn playlist_handler(url: &String, destination: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>>
 {
-    let playlist = get_playlist_from_url(url)?;
+    let playlist = get_playlist_from_url_debug(url)?;
     let playlist_len = playlist.entries.len();
 
     println!("Found playlist with: {} entries.", playlist.entries.len());
@@ -314,10 +509,15 @@ async fn playlist_handler(url: &String, destination: &str) -> Result<(), Box<dyn
     {
         let worker_destination = destination.to_string();
         let worker_semaphore = Arc::clone(&semaphore);
+        if playlist_video_idx > 0
+        {
+            let random_timeout = rand::rng().random_range(200..500);
+            tokio::time::sleep(tokio::time::Duration::from_millis(random_timeout)).await;
+        }
         let handle = tokio::spawn(async move
             {
                 //println!("Setting up entry {} out of {} entries.", playlist_video_idx, playlist_len);
-                if let Err(err) = video_handler(&playlist_video.url, &worker_destination, Some(worker_semaphore)).await
+                if let Err(err) = video_handler_debug(&playlist_video.url, &worker_destination, Some(worker_semaphore)).await
                 {
                     eprintln!("Failed to download: {} with error: {}. It was entry {} out of {} entries.", playlist_video.title, err, playlist_video_idx, playlist_len);
                 }
@@ -352,7 +552,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>>
     {
         "video" =>
         {
-            video_handler(url, destination, None).await
+            video_handler_debug(url, destination, None).await
         },
         "playlist" =>
         {
