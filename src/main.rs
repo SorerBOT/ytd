@@ -240,14 +240,10 @@ async fn download_video(video: &Video, destination: &str, semaphore: Option<Arc<
         .replace("/", "_");
     let file_path = format!("{}/{}", destination_copy, file_name);
 
-    match tokio::fs::File::open(&file_path).await
+    if let Ok(_) = tokio::fs::File::open(&file_path).await
     {
-        Ok(_) =>
-        {
-            println!("File exists. Skipping.");
-            return Ok(());
-        },
-        Err(_) => {},
+        println!("File exists. Skipping.");
+        return Ok(());
     }
 
     let is_manifest = file_path.contains("manifest") || file_path.contains("m3u8");
