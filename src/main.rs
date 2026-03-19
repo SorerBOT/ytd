@@ -75,12 +75,31 @@ fn get_video_from_url_debug(url: &str) -> Result<Video,Box<dyn std::error::Error
 
 fn get_video_from_url(url: &str) -> Result<Video,Box<dyn std::error::Error + Send + Sync>>
 {
-    let output = Command::new("yt-dlp")
+    let cookie = std::env::var("YTD_COOKIE").unwrap_or_default();
+    let mut command = Command::new("yt-dlp");
+
+    command
+        .arg("--ignore-errors")
         .arg("--dump-json")
         .arg("-f")
-        .arg("best[ext=mp4]/best")
-        .arg(url)
-        .output()?;
+        .arg("best[ext=mp4]/best");
+
+    if !cookie.is_empty()
+    {
+        command
+            .arg("--cookies")
+            .arg("ytd_cookies.tmp");
+    }
+
+    command.arg(url);
+
+    let output = command.output()?;
+
+    if !output.status.success()
+    {
+        let err_msg = String::from_utf8_lossy(&output.stderr).to_string();
+        return Err(err_msg.into());
+    }
 
     let json_content = String::from_utf8(output.stdout)?;
 
@@ -175,11 +194,24 @@ async fn download_hls_debug(client: Client, url: &str, file_path: &str) -> Resul
 
 fn get_playlist_from_url(url: &str) -> Result<Playlist, Box<dyn std::error::Error + Send + Sync>>
 {
-    let output = Command::new("yt-dlp")
+    let cookie = std::env::var("YTD_COOKIE").unwrap_or_default();
+
+    let mut command = Command::new("yt-dlp");
+    command 
+        .arg("--ignore-errors")
         .arg("--dump-single-json")
-        .arg("--flat-playlist")
-        .arg(url)
-        .output()?;
+        .arg("--flat-playlist");
+
+    if !cookie.is_empty()
+    {
+        command
+            .arg("--cookies")
+            .arg("ytd_cookies.tmp");
+    }
+
+    command.arg(url);
+
+    let output = command.output()?;
 
     let json_content = String::from_utf8(output.stdout)?;
 
@@ -394,11 +426,18 @@ async fn download_video_debug(video: &Video, destination: &str, semaphore: Optio
 
 async fn download_video(video: &Video, destination: &str, semaphore: Option<Arc<Semaphore>>) -> Result<(), Box<dyn std::error::Error + Send + Sync>>
 {
+    let cookie = std::env::var("YTD_COOKIE").unwrap_or_default();
+
     let mut client_headers = HeaderMap::new();
     client_headers.append("User-Agent", HeaderValue::from_str(&video.http_headers.user_agent)?);
     client_headers.append("Accept", HeaderValue::from_str(&video.http_headers.accept)?);
     client_headers.append("Accept-Language", HeaderValue::from_str(&video.http_headers.accept_language)?);
     client_headers.append("Sec-Fetch-Mode", HeaderValue::from_str(&video.http_headers.sec_fetch_mode)?);
+
+    if !cookie.is_empty()
+    {
+        client_headers.append("Cookie", HeaderValue::from_str(cookie.as_str())?);
+    }
 
     let client = Client::builder()
         .default_headers(client_headers)
@@ -481,7 +520,7 @@ async fn video_handler(url: &String, destination: &str, semaphore: Option<Arc<Se
     };
 
     let video: Video = get_video_from_url(url)
-        .expect("Failed to download video.");
+        .expect(&format!("Failed to download video with URL: {}", url));
 
     drop(_permit);
 
@@ -534,12 +573,17 @@ async fn playlist_handler(url: &String, destination: &str) -> Result<(), Box<dyn
     let playlist = get_playlist_from_url(url)?;
     let playlist_len = playlist.entries.len();
 
-    println!("Found playlist with: {} entries.", playlist.entries.len());
+    println!("Found playlist with: {} entries. Dump:\n{:?}", playlist.entries.len(), playlist);
 
     let mut handles = Vec::new();
     let semaphore = Arc::new(Semaphore::new(3));
     for (playlist_video_idx, playlist_video) in playlist.entries.into_iter().enumerate()
     {
+        if playlist_video.title == "[Private video]"
+        {
+            println!("Skipping private video.");
+            continue;
+        }
         let worker_destination = destination.to_string();
         let worker_semaphore = Arc::clone(&semaphore);
         if playlist_video_idx > 0
@@ -566,9 +610,42 @@ async fn playlist_handler(url: &String, destination: &str) -> Result<(), Box<dyn
     Ok(())
 }
 
+fn generate_netscape_cookie(cookie: &str) -> String
+{
+    let mut netscape_content = String::from("# Netscape HTTP Cookie File\n");
+
+    for pair in cookie.split(';') 
+    {
+        let trimmed = pair.trim();
+        if trimmed.is_empty() { continue; }
+
+        if let Some((key, value)) = trimmed.split_once('=') 
+        {
+            let line = format!(
+                ".youtube.com\tTRUE\t/\tTRUE\t2147483647\t{}\t{}\n", 
+                key, 
+                value
+            );
+            netscape_content.push_str(&line);
+        }
+    }
+
+    return netscape_content;
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>>
 {
+    let cookie = std::env::var("YTD_COOKIE").unwrap_or_default();
+    let netscape_cookie = generate_netscape_cookie(&cookie);
+
+    if !cookie.is_empty()
+    {
+        tokio::fs::write("ytd_cookies.tmp", netscape_cookie.as_str()).await?;
+    }
+
+
+
     let args: Vec<String> = env::args().collect();
 
     if args.len() < 4
@@ -607,6 +684,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>>
         {
             println!("Error downloading video: {}", err);
         }
+    }
+
+    if !cookie.is_empty()
+    {
+        tokio::fs::remove_file("ytd_cookies.tmp").await?;
     }
 
     Ok(())
