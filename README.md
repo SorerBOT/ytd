@@ -7,6 +7,7 @@ Under the hood it uses yt-dlp to find the video / playlist metadata, then handle
 * Fault tolerance: playlist downloads don't pause after a single video crashed. They skip it.
 * It handles both HLS manifests and raw MP4 files.
 * Maximises parallelism (within YouTube rate-limit constraints).
+* Adding Cookies exported from your browser. Only use Cookies from a burner account, and on your own machine. They are passed to my client and to yt-dlp, and might cause harm to the Google account associated with them).
 
 ## Dependencies:
 * yt-dlp - can be downloaded with most package managers.
