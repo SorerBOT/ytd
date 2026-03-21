@@ -520,7 +520,7 @@ async fn video_handler(url: &String, destination: &str, semaphore: Option<Arc<Se
     };
 
     let video: Video = get_video_from_url(url)
-        .expect(&format!("Failed to download video with URL: {}", url));
+        .expect(&format!("Failed to fetch information about video with URL: {}", url));
 
     drop(_permit);
 
