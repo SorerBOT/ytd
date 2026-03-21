@@ -594,7 +594,7 @@ async fn playlist_handler(url: &String, destination: &str) -> Result<(), Box<dyn
         let handle = tokio::spawn(async move
             {
                 //println!("Setting up entry {} out of {} entries.", playlist_video_idx, playlist_len);
-                if let err(err) = video_handler(&playlist_video.url, &worker_destination, some(worker_semaphore)).await
+                if let Err(err) = video_handler(&playlist_video.url, &worker_destination, Some(worker_semaphore)).await
                 {
                     eprintln!("failed to download: {} with error: {}. it was entry {} out of {} entries.", playlist_video.title, err, playlist_video_idx, playlist_len);
                 }
