@@ -520,7 +520,7 @@ async fn video_handler(url: &String, destination: &str, semaphore: Option<Arc<Se
     };
 
     let video: Video = get_video_from_url(url)
-        .expect(&format!("Failed to fetch information about video with URL: {}", url));
+        .map_err(|err| format!("Failed to fetch information about video with URL: {}. Error: {}", url, err))?;
 
     drop(_permit);
 
@@ -594,9 +594,9 @@ async fn playlist_handler(url: &String, destination: &str) -> Result<(), Box<dyn
         let handle = tokio::spawn(async move
             {
                 //println!("Setting up entry {} out of {} entries.", playlist_video_idx, playlist_len);
-                if let Err(err) = video_handler(&playlist_video.url, &worker_destination, Some(worker_semaphore)).await
+                if let err(err) = video_handler(&playlist_video.url, &worker_destination, some(worker_semaphore)).await
                 {
-                    eprintln!("Failed to download: {} with error: {}. It was entry {} out of {} entries.", playlist_video.title, err, playlist_video_idx, playlist_len);
+                    eprintln!("failed to download: {} with error: {}. it was entry {} out of {} entries.", playlist_video.title, err, playlist_video_idx, playlist_len);
                 }
             });
         handles.push(handle);
