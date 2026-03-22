@@ -381,9 +381,12 @@ async fn download_video_debug(video: &Video, destination: &str, semaphore: Optio
     {
         destination_copy.pop();
     }
-    let file_name = format!("{}.{}", video.fulltitle, video.ext)
+    let title_sanitized = video.fulltitle
         .replace(" ", "_")
-        .replace("/", "_");
+        .replace("/", "_")
+        .replace("\"", "")
+        .replace("\'", "");
+    let file_name = format!("{}.{}", title_sanitized, video.ext);
     let file_path = format!("{}/{}", destination_copy, file_name);
 
     if let Ok(_) = tokio::fs::File::open(&file_path).await
@@ -606,7 +609,7 @@ async fn playlist_handler(url: &String, destination: &str) -> Result<(), Box<dyn
                 //println!("Setting up entry {} out of {} entries.", playlist_video_idx, playlist_len);
                 if let Err(err) = video_handler(&playlist_video.url, &worker_destination, Some(worker_semaphore)).await
                 {
-                    eprintln!("failed to download: {} with error: {}. it was entry {} out of {} entries.", playlist_video.title, err, playlist_video_idx, playlist_len);
+                    eprintln!("failed to download: {} with error: {}. it was entry {} out of {} entries. URL: {}", playlist_video.title, err, playlist_video_idx, playlist_len, playlist_video.url);
                 }
             });
         handles.push(handle);
