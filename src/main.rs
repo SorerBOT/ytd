@@ -392,7 +392,8 @@ async fn download_video_debug(video: &Video, destination: &str, semaphore: Optio
         return Ok(());
     }
 
-    let is_manifest = file_path.contains("manifest") || file_path.contains("m3u8");
+    let is_manifest = video.url.contains("manifest") || video.url.contains("m3u8");
+    println!("Is manifest: {}, URL: {}", is_manifest, video.url);
     let _permit;
     if semaphore.is_some()
     {
@@ -460,7 +461,7 @@ async fn download_video(video: &Video, destination: &str, semaphore: Option<Arc<
         return Ok(());
     }
 
-    let is_manifest = file_path.contains("manifest") || file_path.contains("m3u8");
+    let is_manifest = video.url.contains("manifest") || video.url.contains("m3u8");
     let _permit;
     if semaphore.is_some()
     {
