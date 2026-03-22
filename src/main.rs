@@ -484,6 +484,8 @@ async fn download_video(video: &Video, destination: &str, semaphore: Option<Arc<
         download_raw(client, &video.url, &file_path).await
     };
 
+    println!("Finished downloading video into {}", file_path);
+
     if let Err(err) = res
     {
         tokio::fs::remove_file(file_path).await?;
