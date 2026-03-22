@@ -584,6 +584,12 @@ async fn playlist_handler(url: &String, destination: &str) -> Result<(), Box<dyn
             println!("Skipping private video.");
             continue;
         }
+        if playlist_video.title == "[Deleted video]"
+        {
+            println!("Skipping deleted video.");
+            continue;
+        }
+
         let worker_destination = destination.to_string();
         let worker_semaphore = Arc::clone(&semaphore);
         if playlist_video_idx > 0
