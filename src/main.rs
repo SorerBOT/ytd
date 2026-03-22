@@ -251,10 +251,11 @@ async fn download_hls(client: Client, url: &str, file_path: &str) -> Result<(), 
         let worker_client = client.clone();
         let worker_urls = chunk.to_vec();
         let worker_counter = downloaded_segments.clone();
+        let worker_file_path = format!("{}_ytd_{}.tmp", file_path, chunk_number);
 
         let handle = tokio::spawn(async move
             {
-                let file_name = format!("ytd_{}.tmp", chunk_number);
+                let file_name = format!("{}_ytd_{}.tmp", worker_file_path, chunk_number);
                 let mut chunk_file = tokio::fs::File::create(&file_name).await.unwrap();
 
                 for (segment_idx, segment_url) in worker_urls.iter().enumerate()
@@ -295,7 +296,7 @@ async fn download_hls(client: Client, url: &str, file_path: &str) -> Result<(), 
                 let progress_percentage = (current_downloaded_segments_count * 100) / segments_count;
                 let download_speed = (current_downloaded_segments_count - previous_downloaded_segments_count) * 2;
 
-                println!("Downloaded {}% of the video. Currently downloading {} MiB / S.", progress_percentage, download_speed);
+                println!("Downloaded {}% of the video in HLS mode. Currently downloading {} MiB / S.", progress_percentage, download_speed);
             }
         });
 
@@ -308,7 +309,7 @@ async fn download_hls(client: Client, url: &str, file_path: &str) -> Result<(), 
 
     for temp_file_idx in 0..chunks_count
     {
-        let file_name = format!("ytd_{}.tmp", temp_file_idx);
+        let file_name = format!("{}_ytd_{}.tmp", file_path, temp_file_idx);
         let mut temp_file = tokio::fs::File::open(&file_name).await?;
         tokio::io::copy(&mut temp_file, &mut file).await?;
         tokio::fs::remove_file(&file_name).await?;
@@ -352,7 +353,7 @@ async fn download_raw(client: Client, url: &str, file_path: &str) -> Result<(), 
             if stream_length.is_some()
             {
                 let progress_percentage = (bytes_read_new * 100) / stream_length.unwrap();
-                print!("Downloaded {}% of the video. ", progress_percentage);
+                print!("Downloaded {}% of the video in RAW mode. ", progress_percentage);
             }
             println!(" Currently downloading {} MiB / S.", download_speed);
 
@@ -610,7 +611,10 @@ async fn playlist_handler(url: &String, destination: &str) -> Result<(), Box<dyn
 
     for handle in handles
     {
-        handle.await.unwrap();
+        if let Err(err) = handle.await
+        {
+            eprintln!("Error downloading video: {}. Skipping the video.", err);
+        }
     }
 
     Ok(())
