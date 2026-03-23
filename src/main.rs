@@ -255,8 +255,7 @@ async fn download_hls(client: Client, url: &str, file_path: &str) -> Result<(), 
 
         let handle = tokio::spawn(async move
             {
-                let file_name = format!("{}_ytd_{}.tmp", worker_file_path, chunk_number);
-                let mut chunk_file = tokio::fs::File::create(&file_name).await.unwrap();
+                let mut chunk_file = tokio::fs::File::create(&worker_file_path).await.unwrap();
 
                 for (segment_idx, segment_url) in worker_urls.iter().enumerate()
                 {
@@ -381,22 +380,27 @@ async fn download_video_debug(video: &Video, destination: &str, semaphore: Optio
     {
         destination_copy.pop();
     }
-    let title_sanitized = video.fulltitle
-        .replace(" ", "_")
-        .replace("/", "_")
-        .replace("\"", "")
-        .replace("\'", "");
+
+    let title_sanitized: String = video.fulltitle
+        .chars()
+        .filter_map(|c| match c
+        {
+           c if c.is_alphanumeric() => Some(c),
+            ' ' | '/' | '-' => Some('_'),
+            _ => None
+        })
+        .collect();
+
     let file_name = format!("{}.{}", title_sanitized, video.ext);
     let file_path = format!("{}/{}", destination_copy, file_name);
 
-    if let Ok(_) = tokio::fs::File::open(&file_path).await
+    if let Ok(_) = tokio::fs::try_exists(&file_path).await
     {
         println!("File exists. Skipping.");
         return Ok(());
     }
 
     let is_manifest = video.url.contains("manifest") || video.url.contains("m3u8");
-    println!("Is manifest: {}, URL: {}", is_manifest, video.url);
     let _permit;
     if semaphore.is_some()
     {
@@ -453,12 +457,21 @@ async fn download_video(video: &Video, destination: &str, semaphore: Option<Arc<
     {
         destination_copy.pop();
     }
-    let file_name = format!("{}.{}", video.fulltitle, video.ext)
-        .replace(" ", "_")
-        .replace("/", "_");
+
+    let title_sanitized: String = video.fulltitle
+        .chars()
+        .filter_map(|c| match c
+        {
+           c if c.is_alphanumeric() => Some(c),
+            ' ' | '/' | '-' => Some('_'),
+            _ => None
+        })
+        .collect();
+
+    let file_name = format!("{}.{}", title_sanitized, video.ext);
     let file_path = format!("{}/{}", destination_copy, file_name);
 
-    if let Ok(_) = tokio::fs::File::open(&file_path).await
+    if let Ok(_) = tokio::fs::try_exists(&file_path).await
     {
         println!("File exists. Skipping.");
         return Ok(());
@@ -488,12 +501,18 @@ async fn download_video(video: &Video, destination: &str, semaphore: Option<Arc<
         download_raw(client, &video.url, &file_path).await
     };
 
-    println!("Finished downloading video into {}", file_path);
 
-    if let Err(err) = res
+    match res
     {
-        tokio::fs::remove_file(file_path).await?;
-        return Err(err);
+        Err(err) =>
+        {
+            eprintln!("Failed to downloading video into {}, error: {}", file_path, err);
+            tokio::fs::remove_file(file_path).await?;
+        },
+        Ok(_) =>
+        {
+            println!("Finished downloading video into {}", file_path);
+        }
     }
 
     Ok(())
