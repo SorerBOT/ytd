@@ -394,7 +394,7 @@ async fn download_video_debug(video: &Video, destination: &str, semaphore: Optio
     let file_name = format!("{}.{}", title_sanitized, video.ext);
     let file_path = format!("{}/{}", destination_copy, file_name);
 
-    if let Ok(_) = tokio::fs::try_exists(&file_path).await
+    if tokio::fs::try_exists(&file_path).await?
     {
         println!("File exists. Skipping.");
         return Ok(());
@@ -471,7 +471,7 @@ async fn download_video(video: &Video, destination: &str, semaphore: Option<Arc<
     let file_name = format!("{}.{}", title_sanitized, video.ext);
     let file_path = format!("{}/{}", destination_copy, file_name);
 
-    if let Ok(_) = tokio::fs::try_exists(&file_path).await
+    if tokio::fs::try_exists(&file_path).await?
     {
         println!("File exists. Skipping.");
         return Ok(());
